@@ -63,6 +63,96 @@ Workset-safe guards for workshared models. Wraps the Revit API checkout and owne
 
 ---
 
+### 5. `modeless.py` — Modeless Window ExternalEvent Plumbing
+
+Solves the fundamental problem of calling the Revit API from a modeless (`Show()`) WPF window. Button click handlers in a modeless window run on the WPF UI thread — not Revit's main thread — so any direct model or view call throws `"Attempt to modify the model outside of transaction"` or is silently ignored.
+
+The standard fix is `IExternalEventHandler` + `ExternalEvent`, but writing a bespoke handler class for every distinct action produces a lot of boilerplate. This module wraps the pattern into a single reusable class that accepts an inline callback instead.
+
+**Public API: `ExternalCall`**
+
+| Member | Description |
+|---|---|
+| `ExternalCall(name)` | Creates an `IExternalEventHandler` + `ExternalEvent` pair. Must be called from a valid Revit API context — typically inside the window `__init__`, before `.Show()` returns. |
+| `raise_with(callback)` | Sets `callback(uiapp)` as the pending action and raises the event. Revit calls it on the main thread when it next goes idle. If raised again before the first fires, the latest callback wins. |
+
+**Requirements at the script level:**
+
+```python
+__persistentengine__ = True   # keep the IronPython engine alive after Show() returns
+```
+
+Without this, pyRevit disposes the engine once `Show()` returns and every subsequent callback fires against a dead engine (crash-to-desktop or silent no-op).
+
+**Before** (bespoke handler class per action):
+
+```python
+class NavigateHandler(IExternalEventHandler):
+    def __init__(self):
+        self.element_ids = []
+        self.isolate = False
+    def Execute(self, uiapp):
+        uidoc = uiapp.ActiveUIDocument
+        ids = List[ElementId](self.element_ids)
+        uidoc.Selection.SetElementIds(ids)
+        if self.isolate:
+            t = Transaction(uidoc.Document, "Isolate")
+            t.Start()
+            uidoc.ActiveView.IsolateElementsTemporary(ids)
+            t.Commit()
+        else:
+            uidoc.ShowElements(ids)
+    def GetName(self):
+        return "Navigate"
+
+# ... repeat for ResetViewHandler, RunHandler, etc.
+nav_handler = NavigateHandler()
+nav_event   = ExternalEvent.Create(nav_handler)
+```
+
+**After** (one `ExternalCall` per slot, callback inline):
+
+```python
+from icz.modeless import ExternalCall
+
+class MyWindow(forms.WPFWindow):
+    def __init__(self, xaml):
+        forms.WPFWindow.__init__(self, xaml)
+        self.nav   = ExternalCall("Navigate")    # one slot per logical action
+        self.reset = ExternalCall("Reset View")
+
+    def _on_row_click(self, sender, args):
+        ids     = [sender.Tag]
+        isolate = bool(self.cb_isolate.IsChecked)
+        def _do(uiapp):
+            uidoc = uiapp.ActiveUIDocument
+            coll  = List[ElementId](ids)
+            uidoc.Selection.SetElementIds(coll)
+            if isolate:
+                t = Transaction(uidoc.Document, "Isolate")
+                t.Start()
+                uidoc.ActiveView.IsolateElementsTemporary(coll)
+                t.Commit()
+            else:
+                uidoc.ShowElements(coll)
+        self.nav.raise_with(_do)              # closure captures ids + isolate
+
+    def OnResetView(self, sender, args):
+        def _do(uiapp):
+            uidoc = uiapp.ActiveUIDocument
+            t = Transaction(uidoc.Document, "Reset View")
+            t.Start()
+            uidoc.ActiveView.DisableTemporaryViewMode(
+                TemporaryViewMode.TemporaryHideIsolate)
+            t.Commit()
+            uidoc.Selection.SetElementIds(List[ElementId]())
+        self.reset.raise_with(_do)
+```
+
+Errors inside any callback are caught, never allowed to escape `Execute` (which would crash Revit), and surfaced via `forms.alert` instead.
+
+---
+
 ## 🚀 Installation & Setup
 
 Place the `icz` folder inside your pyRevit extension's `lib` directory. pyRevit adds `lib/` to `sys.path` automatically, so no path manipulation is needed in individual scripts.
@@ -75,7 +165,8 @@ YourExtension.extension/
         ├── revit_compat.py
         ├── theme.py
         ├── units.py
-        └── ownership.py
+        ├── ownership.py
+        └── modeless.py
 ```
 
 For use outside pyRevit (e.g. standalone CPython scripts or C# interop via IronPython host), add the parent of `icz/` to `sys.path` manually:
@@ -110,7 +201,7 @@ if is_valid(my_element):
 ### Applying themes to a WPF window
 
 ```xml
-<!-- ui.xaml -->
+<!-- proto_review_ui.xaml -->
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         Background="{DynamicResource WindowBg}">
     <TextBlock Foreground="{DynamicResource TextMain}" Text="Hello Revit!" />
@@ -176,6 +267,7 @@ Modules are added once they are stable and used across at least two independent 
 | `theme.py` | ✅ Released | |
 | `units.py` | ✅ Released | |
 | `ownership.py` | ✅ Released | |
+| `modeless.py` | ✅ Released | |
 | `collectors.py` | 🔄 In progress | Reusable `FilteredElementCollector` wrappers for common MEP queries |
 | `connectors.py` | 🔄 In progress | Open-connector spatial matching and port-origin utilities |
 | `wpf_helpers.py` | 📋 Planned | Common WPF control factory patterns (row grids, link buttons, etc.) |
@@ -184,4 +276,4 @@ Modules are added once they are stable and used across at least two independent 
 
 ## 📄 License
 
-GNU General Public License v3.0 (GPLv3). See [[LICENSE]](https://github.com/MrGezz/Py-Shared-Module/blob/main/LICENSE) for the full text.
+GNU General Public License v3.0 (GPLv3). See [LICENSE](LICENSE) for the full text.

@@ -64,6 +64,9 @@ Workset-safe guards for workshared models. Wraps the Revit API checkout and owne
 ---
 
 ### 5. `modeless.py` — Modeless Window ExternalEvent Plumbing
+<p align="center">
+  <img src="./.asset/modeless showcase_tvai.gif" width="400" alt="Modeless WPF Demo in Revit">
+</p>
 
 Solves the fundamental problem of calling the Revit API from a modeless (`Show()`) WPF window. Button click handlers in a modeless window run on the WPF UI thread — not Revit's main thread — so any direct model or view call throws `"Attempt to modify the model outside of transaction"` or is silently ignored.
 
@@ -152,9 +155,7 @@ class MyWindow(forms.WPFWindow):
 Errors inside any callback are caught, never allowed to escape `Execute` (which would crash Revit), and surfaced via `forms.alert` instead.
 
 ---
-<p align="center">
-  <img src="./assets/modeless showcase_tvai.gif" width="800" alt="Modeless WPF Demo in Revit">
-</p>
+
 ## 🚀 Installation & Setup
 
 Place the `icz` folder inside your pyRevit extension's `lib` directory. pyRevit adds `lib/` to `sys.path` automatically, so no path manipulation is needed in individual scripts.

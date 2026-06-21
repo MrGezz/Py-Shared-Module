@@ -152,7 +152,9 @@ class MyWindow(forms.WPFWindow):
 Errors inside any callback are caught, never allowed to escape `Execute` (which would crash Revit), and surfaced via `forms.alert` instead.
 
 ---
-
+<p align="center">
+  <img src="./assets/modeless showcase_tvai.gif" width="800" alt="Modeless WPF Demo in Revit">
+</p>
 ## 🚀 Installation & Setup
 
 Place the `icz` folder inside your pyRevit extension's `lib` directory. pyRevit adds `lib/` to `sys.path` automatically, so no path manipulation is needed in individual scripts.
